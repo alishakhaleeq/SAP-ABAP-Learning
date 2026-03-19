@@ -1,3 +1,239 @@
+CLASS /lrn/cl_s4d401_dbs_aggregate DEFINITION
+  PUBLIC
+  FINAL
+  CREATE PUBLIC .
+
+  PUBLIC SECTION.
+
+    INTERFACES if_oo_adt_classrun .
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+ENDCLASS.
+
+
+
+CLASS /LRN/CL_S4D401_DBS_AGGREGATE IMPLEMENTATION.
+
+
+  METHOD if_oo_adt_classrun~main.
+
+    CONSTANTS c_carrier_id TYPE /dmo/carrier_id VALUE 'LH'.
+
+    TRY.
+        DATA(carrier) = NEW lcl_carrier(  i_carrier_id = c_carrier_id ).
+
+        out->write(  name = `Carrier Overview`
+                     data = carrier->get_output(  ) ).
+
+      CATCH cx_abap_invalid_value.
+        out->write( | Carrier { c_carrier_id } does not exist | ).
+    ENDTRY.
+
+    IF carrier IS BOUND.
+
+      out->write(  `--------------------------------------------------` ).
+
+* Find a passenger flight from Frankfurt to New York
+* starting as soon as possible after tomorrow
+* with at least 5 free seats
+
+      DATA(today) = cl_abap_context_info=>get_system_date(  ).
+
+      carrier->find_passenger_flight(
+         EXPORTING
+           i_airport_from_id = 'FRA'
+           i_airport_to_id   = 'JFK'
+           i_from_date       = today
+           i_seats           = 5
+         IMPORTING
+           e_flight =     DATA(pass_flight)
+           e_days_later = DATA(days_later)
+                         ).
+
+      IF pass_flight IS BOUND.
+        out->write( name = |Found a suitable passenger flight in { days_later } days:|
+                    data = pass_flight->get_description( ) ).
+      ELSE.
+        out->write( data = `No Passenger Flight found` ).
+      ENDIF.
+
+      out->write(  `--------------------------------------------------` ).
+
+** Find a cargo flight from Frankfurt to New York
+** starting as soon as possible but earliest in 7 days
+** with at least 1200 KG free capacity
+*
+      carrier->find_cargo_flight(
+         EXPORTING
+           i_airport_from_id = 'FRA'
+           i_airport_to_id   = 'JFK'
+           i_from_date       = today
+           i_cargo           = 1200
+         IMPORTING
+           e_flight =     DATA(cargo_flight)
+           e_days_later = DATA(days_later2)
+                         ).
+
+      IF cargo_flight IS BOUND.
+        out->write( name = |Found a suitable cargo flight in { days_later2 } days:|
+                    data = cargo_flight->get_description( ) ).
+      ELSE.
+        out->write( data = `No cargo flight found` ).
+      ENDIF.
+
+
+
+    ENDIF.
+
+  ENDMETHOD.
+ENDCLASS.
+
+Activity 2
+*"* use this source file for the definition and implementation of
+*"* local helper classes, interface definitions and type
+*"* declarations
+
+CLASS lcl_passenger_flight DEFINITION .
+
+  PUBLIC SECTION.
+
+    DATA carrier_id    TYPE /dmo/carrier_id       READ-ONLY.
+    DATA connection_id TYPE /dmo/connection_id    READ-ONLY.
+    DATA flight_date   TYPE /dmo/flight_date      READ-ONLY.
+
+    METHODS constructor
+      IMPORTING
+        i_carrier_id    TYPE /dmo/carrier_id
+        i_connection_id TYPE /dmo/connection_id
+        i_flight_date   TYPE /dmo/flight_date.
+
+    TYPES:
+      BEGIN OF st_connection_details,
+        airport_from_id TYPE /dmo/airport_from_id,
+        airport_to_id   TYPE /dmo/airport_to_id,
+        departure_time  TYPE /dmo/flight_departure_time,
+        arrival_time    TYPE /dmo/flight_departure_time,
+        duration        TYPE i,
+      END OF st_connection_details.
+
+    TYPES
+      tt_flights TYPE STANDARD TABLE OF REF TO lcl_passenger_flight WITH DEFAULT KEY.
+
+    METHODS: get_connection_details
+      RETURNING
+        VALUE(r_result) TYPE st_connection_details.
+
+    METHODS
+      get_free_seats
+        RETURNING
+          VALUE(r_result) TYPE i.
+
+    METHODS
+      get_description RETURNING VALUE(r_result) TYPE string_table.
+
+    CLASS-METHODS class_constructor.
+    CLASS-METHODS
+      get_flights_by_carrier
+        IMPORTING
+          i_carrier_id    TYPE /dmo/carrier_id
+        RETURNING
+          VALUE(r_result) TYPE tt_flights.
+
+  PROTECTED SECTION.
+  PRIVATE SECTION.
+
+    DATA planetype TYPE /dmo/plane_type_id.
+
+    DATA seats_max  TYPE /dmo/plane_seats_max.
+    DATA seats_occ  TYPE /dmo/plane_seats_occupied.
+    DATA seats_free TYPE i.
+
+    DATA price TYPE /dmo/flight_price.
+    CLASS-DATA currency TYPE /dmo/currency_code VALUE 'EUR'.
+    TYPES: BEGIN OF st_flights_buffer,
+             carrier_id     TYPE /lrn/passflight-carrier_id,
+             connection_id  TYPE /lrn/passflight-connection_id,
+             flight_date    TYPE /lrn/passflight-flight_date,
+             plane_type_id  TYPE /lrn/passflight-plane_type_id,
+             seats_max      TYPE /lrn/passflight-seats_max,
+             seats_occupied TYPE /lrn/passflight-seats_occupied,
+             seats_free     TYPE i,
+             price          TYPE /lrn/passflight-price,
+             currency_code  TYPE /lrn/passflight-currency_code,
+           END OF st_flights_buffer.
+    CLASS-DATA: flights_buffer TYPE TABLE OF st_flights_buffer.
+
+
+    DATA connection_details TYPE st_connection_details.
+
+    TYPES:
+      BEGIN OF st_connections_buffer,
+        carrier_id      TYPE /dmo/carrier_id,
+        connection_id   TYPE /dmo/connection_id,
+        airport_from_id TYPE /dmo/airport_from_id,
+        airport_to_id   TYPE /dmo/airport_to_id,
+        departure_time  TYPE /dmo/flight_departure_time,
+        arrival_time    TYPE /dmo/flight_departure_time,
+        timzone_from    TYPE timezone,
+        timzone_to      TYPE timezone,
+        duration        TYPE i,
+      END OF st_connections_buffer.
+
+    CLASS-DATA connections_buffer TYPE TABLE OF st_connections_buffer.
+
+ENDCLASS.
+
+CLASS lcl_passenger_flight IMPLEMENTATION.
+
+  METHOD class_constructor.
+
+    DATA(today) = cl_abap_context_info=>get_system_date( ).
+
+    SELECT
+      FROM /lrn/connection AS c
+      LEFT OUTER JOIN /lrn/airport AS f
+        ON c~airport_from_id = f~airport_id
+      LEFT OUTER JOIN /lrn/airport AS t
+        ON c~airport_to_id = t~airport_id
+    FIELDS carrier_id, connection_id,
+           airport_from_id, airport_to_id, departure_time, arrival_time,
+           f~timzone AS timezone_from,
+           t~timzone AS timezone_to,
+           div(
+                tstmp_seconds_between(
+                  tstmp1 = dats_tims_to_tstmp(
+                             date = @today,
+                             time = c~departure_time,
+                             tzone = f~timzone ),
+                  tstmp2 = dats_tims_to_tstmp(
+                             date = @today,
+                             time = c~arrival_time,
+                             tzone = t~timzone )
+                                            ),
+                60 )
+      INTO TABLE @connections_buffer.
+
+*    LOOP AT connections_buffer INTO DATA(connection).
+*
+*      CONVERT DATE today
+*              TIME connection-departure_time
+*              TIME ZONE connection-timzone_from
+*              INTO UTCLONG DATA(departure_utclong).
+*
+*      CONVERT DATE today
+*              TIME connection-arrival_time
+*              TIME ZONE connection-timzone_to
+*              INTO UTCLONG DATA(arrival_utclong).
+*
+*      connection-duration = utclong_diff( high = arrival_utclong
+*                                          low  = departure_utclong
+*                                        ) / 60.
+*
+*      MODIFY connections_buffer FROM connection TRANSPORTING duration.
+*
+*    ENDLOOP.
+
+  ENDMETHOD.
 Mod 3 
 @EndUserText.label : 'Employee'
 @AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
