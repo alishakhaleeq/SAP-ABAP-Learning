@@ -1,0 +1,107 @@
+
+@EndUserText.label : 'Department'
+@AbapCatalog.enhancement.category : #NOT_EXTENSIBLE
+@AbapCatalog.tableCategory : #TRANSPARENT
+@AbapCatalog.deliveryClass : #A
+@AbapCatalog.dataMaintenance : #RESTRICTED
+
+define table z7233depment {
+
+  key client              : abap.clnt not null;
+  key id                  : z7233_department_id;
+      description         : /lrn/depment_description;
+      include             : /lrn/s_admin;
+
+}
+
+@EndUserText.label : 'Department (Entity)'
+@AccessControl.authorizationCheck : #NOT_REQUIRED
+define view entity Z7233_R_Department
+  as select from z7233depment
+{
+  key client              as Client,
+  key id                  as Id,
+      description         as Description,
+      head_id             as HeadId,
+      assistant_id        as AssistantId,
+      created_by          as CreatedBy,
+      created_at          as CreatedAt,
+      last_changed_by     as LastChangedBy,
+      last_changed_at     as LastChangedAt
+}
+@EndUserText.label : 'Employee (Entity)'
+@AccessControl.authorizationCheck : #NOT_REQUIRED
+define view entity Z7233_R_Employee
+  as select from z7233employ
+  association [1..1] to Z7233_R_Department as _Department
+    on $projection.DepartmentId = _Department.Id
+{
+  key client              as Client,
+  key employee_id         as EmployeeId,
+      first_name          as FirstName,
+      last_name           as LastName,
+      department_id       as DepartmentId,
+      entry_date          as EntryDate,
+      created_by          as CreatedBy,
+      created_at          as CreatedAt,
+      last_changed_by     as LastChangedBy,
+      last_changed_at     as LastChangedAt,
+      _Department
+}
+@EndUserText.label : 'Department (Entity)'
+@AccessControl.authorizationCheck : #NOT_REQUIRED
+define view entity Z7233_R_Department
+  as select from z7233depment
+  association [0..*] to Z7233_R_Employee as _Employee
+    on $projection.Id = _Employee.DepartmentId
+  association [0..1] to Z7233_R_Employee as _Head
+    on $projection.HeadId = _Head.EmployeeId
+  association [1..1] to Z7233_R_Employee as _Assistant
+    on $projection.AssistantId = _Assistant.EmployeeId
+{
+  key client              as Client,
+  key id                  as Id,
+      description         as Description,
+      head_id             as HeadId,
+      assistant_id        as AssistantId,
+      created_by          as CreatedBy,
+      created_at          as CreatedAt,
+      last_changed_by     as LastChangedBy,
+      last_changed_at     as LastChangedAt,
+      _Employee,
+      _Head,
+      _Assistant
+}
+@EndUserText.label : 'Employee (Query)'
+@AccessControl.authorizationCheck : #NOT_REQUIRED
+define view entity Z7233_C_EmployeeQuery
+  as select from Z7233_R_Employee
+{
+  key EmployeeId,
+      FirstName,
+      LastName,
+      DepartmentId,
+
+      _Department.Description                as DepartmentDescription,
+      _Department._Assistant.LastName        as AssistantName,
+
+      /* Associations */
+      _Department
+}
+METHOD if_oo_adt_classrun~main.
+
+  SELECT
+    FROM Z7233_C_EmployeeQuery
+  FIELDS employeeid,
+         firstname,
+         lastname,
+         departmentid,
+         departmentdescription,
+         assistantname,
+         \_department\_head-lastname AS headname
+  INTO TABLE @DATA(result).
+
+  out->write( data = result
+              name = 'Selection result' ).
+
+ENDMETHOD.
